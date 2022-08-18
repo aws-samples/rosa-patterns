@@ -1,0 +1,639 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "This template creates the AWS PrivateLink networking infrastructure resources required to support a private Red Hat OpenShift on AWS (ROSA) cluster"
+
+Parameters:
+  pNumberOfAZs:
+    Type: Number
+    AllowedValues:
+      - 1
+      - 3
+    Default: 3
+    Description: Number of Availability Zones. The number of Availability Zones for a Multi AZ ROSA cluster should be 3.
+
+  pEnableELBServiceLinkedRole:
+    AllowedValues: ["true", "false"]
+    Default: "false"
+    Description: "To create the ELB Service Linked Role, set this parameter to true"
+    Type: String
+  pEnableVpcFlowLogs:
+    AllowedValues: ["true", "false"]
+    Default: "false"
+    Description: "Send VPC Flow logs to AWS CloudWatch"
+    Type: String
+  pVpcFlowLogGroupRetentionDays:
+    Default: 365
+    Description: "VPC Flow logs retention days"
+    Type: Number
+  pRosaVpcCidrBlock:
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
+    Default: 10.1.0.0/16
+    Description: Private ROSA VPC CIDR Block (eg 10.1.0.0/16). Minimum value is /25 for Single AZ, /24 for Multi AZ.
+    Type: String
+  pRosaVpcSubnetACidrBlock:
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
+    Default: 10.1.0.0/18
+    Description: Private ROSA Subnet A CIDR Block (eg 10.1.0.0/18)
+    Type: String
+  pRosaVpcSubnetBCidrBlock:
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
+    Default: 10.1.64.0/18
+    Description: Private ROSA Subnet B CIDR Block (eg 10.1.64.0/18). Required if pNumberOfAZs > 1
+    Type: String
+  pRosaVpcSubnetCCidrBlock:
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
+    Default: 10.1.128.0/17
+    Description: Private ROSA Subnet C CIDR Block (eg 10.1.128.0/17). Required if pNumberOfAZs is 3
+    Type: String
+  pEgressVpcCidrBlock:
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
+    Default: 10.0.0.0/16
+    Description: Egress VPC CIDR Block (eg 10.0.0.0/16)
+    Type: String
+  pEgressVpcPrivateSubnetCidrBlock:
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
+    Default: 10.0.0.0/17
+    Description: Egress Private Subnet CIDR Block (eg 10.0.0.0/17)
+    Type: String
+  pEgressVpcPublicSubnetACidrBlock:
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
+    Default: 10.0.128.0/19
+    Description: Egress Public Subnet A CIDR Block (eg 10.0.128.0/19)
+    Type: String
+
+Conditions:
+  cEnableELBServiceLinkedRole:
+    "Fn::Equals": [{ "Ref": "pEnableELBServiceLinkedRole" }, "true"]
+  cEnableVpcFlowLogs:
+    "Fn::Equals": [{ "Ref": "pEnableVpcFlowLogs" }, "true"]
+  # Create a second subnet if pNumberOfAZs !== 1
+  cCreateSubnetB: !Not [!Equals [!Ref pNumberOfAZs, 1]]
+  # Create a third subnet if pNumberOfAZs === 3
+  cCreateSubnetC: !Equals [!Ref pNumberOfAZs, 3]
+
+Resources:
+  # IAM Service linked role
+  rELBServiceLinkedRole:
+    Type: AWS::IAM::ServiceLinkedRole
+    Condition: cEnableELBServiceLinkedRole
+    Properties:
+      AWSServiceName: elasticloadbalancing.amazonaws.com
+      Description: ROSA ELB service role
+
+  # ROSA Private VPC
+  rRosaVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:
+        Ref: pRosaVpcCidrBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: rosa-vpc
+  rRosaVpcSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: rRosaVpc
+      CidrBlock:
+        Ref: pRosaVpcSubnetACidrBlock
+      AvailabilityZone: !Select [0, !GetAZs ] # Uses the first AZ available
+      Tags:
+        - Key: Name
+          Value: rosa-subnet-a
+  rRosaVpcSubnetB:
+    Type: AWS::EC2::Subnet
+    Condition: cCreateSubnetB
+    Properties:
+      VpcId:
+        Ref: rRosaVpc
+      CidrBlock:
+        Ref: pRosaVpcSubnetBCidrBlock
+      AvailabilityZone: !Select [1, !GetAZs ] # Uses the second AZ available
+      Tags:
+        - Key: Name
+          Value: rosa-subnet-b
+  rRosaVpcSubnetC:
+    Type: AWS::EC2::Subnet
+    Condition: cCreateSubnetC
+    Properties:
+      VpcId:
+        Ref: rRosaVpc
+      CidrBlock:
+        Ref: pRosaVpcSubnetCCidrBlock
+      AvailabilityZone: !Select [2, !GetAZs ] # Uses the third AZ available
+      Tags:
+        - Key: Name
+          Value: rosa-subnet-c
+  # Egress VPC
+  rEgressVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:
+        Ref: pEgressVpcCidrBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: rosa-egress-vpc
+  rEgressVpcPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: rEgressVpc
+      CidrBlock:
+        Ref: pEgressVpcPrivateSubnetCidrBlock
+      Tags:
+        - Key: Name
+          Value: rosa-egress-private-subnet
+  rEgressVpcPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: rEgressVpc
+      CidrBlock:
+        Ref: pEgressVpcPublicSubnetACidrBlock
+      Tags:
+        - Key: Name
+          Value: rosa-egress-public-subnet
+  rInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: rosa-igw
+  rInternetGatewayEgressAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: rEgressVpc
+      InternetGatewayId:
+        Ref: rInternetGateway
+
+  # NAT Gateway
+  rElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  rNATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - rElasticIP
+          - AllocationId
+      SubnetId:
+        Ref: rEgressVpcPublicSubnet
+      Tags:
+        - Key: Name
+          Value: rosa-egress-public-nat
+
+  # Transit Gateway
+  rTransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      AutoAcceptSharedAttachments: disable
+      DnsSupport: enable
+      DefaultRouteTableAssociation: enable
+      DefaultRouteTablePropagation: enable
+      Tags:
+        - Key: Name
+          Value: rosa-tgw
+  rRosaTransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      SubnetIds:
+        - Ref: rRosaVpcSubnetA
+        - !If [cCreateSubnetB, Ref: rRosaVpcSubnetB, !Ref "AWS::NoValue"]
+        - !If [cCreateSubnetC, Ref: rRosaVpcSubnetC, !Ref "AWS::NoValue"]
+      TransitGatewayId:
+        Ref: rTransitGateway
+      VpcId:
+        Ref: rRosaVpc
+      Tags:
+        - Key: Name
+          Value: rosa-tgw-attachment
+  rEgressTransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      SubnetIds:
+        - Ref: rEgressVpcPrivateSubnet
+      TransitGatewayId:
+        Ref: rTransitGateway
+      VpcId:
+        Ref: rEgressVpc
+      Tags:
+        - Key: Name
+          Value: rosa-egress-tgw-attachment
+
+  # VPC Flow logs
+  rVpcsLogGroupKey:
+    Type: AWS::KMS::Key
+    Condition: cEnableVpcFlowLogs
+    Properties:
+      Enabled: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: key-loggroup
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Join
+                - ""
+                - - !Sub "arn:${AWS::Partition}:iam::"
+                  - !Ref "AWS::AccountId"
+                  - ":root"
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: Enable Cloudwatch access
+            Effect: Allow
+            Principal:
+              Service: !Sub "logs.${AWS::Region}.amazonaws.com"
+            Action:
+              - kms:Encrypt*
+              - kms:Decrypt*
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:Describe*
+            Resource: "*"
+  rRosaVpcFlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: cEnableVpcFlowLogs
+    Properties:
+      RetentionInDays:
+        Ref: pVpcFlowLogGroupRetentionDays
+      KmsKeyId:
+        Fn::GetAtt:
+          - rVpcsLogGroupKey
+          - Arn
+  rRosaVpcFlowLogCloudWatchRole:
+    Type: AWS::IAM::Role
+    Condition: cEnableVpcFlowLogs
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - vpc-flow-logs.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource:
+                  Fn::GetAtt:
+                    - rRosaVpcFlowLogGroup
+                    - Arn
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+  rRosaVpcFlowLogCloudWatch:
+    Type: AWS::EC2::FlowLog
+    Condition: cEnableVpcFlowLogs
+    Properties:
+      DeliverLogsPermissionArn:
+        Fn::GetAtt:
+          - rRosaVpcFlowLogCloudWatchRole
+          - Arn
+      LogDestination:
+        Fn::GetAtt:
+          - rRosaVpcFlowLogGroup
+          - Arn
+      ResourceId:
+        Ref: rEgressVpc
+      ResourceType: VPC
+      TrafficType: ALL
+  rEgressVpcFlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: cEnableVpcFlowLogs
+    Properties:
+      RetentionInDays:
+        Ref: pVpcFlowLogGroupRetentionDays
+      KmsKeyId:
+        Fn::GetAtt:
+          - rVpcsLogGroupKey
+          - Arn
+  rEgressVpcFlowLogCloudWatchRole:
+    Type: AWS::IAM::Role
+    Condition: cEnableVpcFlowLogs
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - vpc-flow-logs.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Resource:
+                  Fn::GetAtt:
+                    - rEgressVpcFlowLogGroup
+                    - Arn
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+  rEgressVpcFlowLogCloudWatch:
+    Type: AWS::EC2::FlowLog
+    Condition: cEnableVpcFlowLogs
+    Properties:
+      DeliverLogsPermissionArn:
+        Fn::GetAtt:
+          - rEgressVpcFlowLogCloudWatchRole
+          - Arn
+      LogDestination:
+        Fn::GetAtt:
+          - rEgressVpcFlowLogGroup
+          - Arn
+      ResourceId:
+        Ref: rEgressVpc
+      ResourceType: VPC
+      TrafficType: ALL
+
+  # Egress gateway route
+  rTransitGatewayRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: rosa-tgw-rt
+      TransitGatewayId:
+        Ref: rTransitGateway
+  rEgressTransitGatewayRouteTableAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties:
+      TransitGatewayAttachmentId:
+        Ref: rEgressTransitGatewayAttachment
+      TransitGatewayRouteTableId:
+        Ref: rTransitGatewayRouteTable
+  rRosaTransitGatewayRouteTableAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties:
+      TransitGatewayAttachmentId:
+        Ref: rRosaTransitGatewayAttachment
+      TransitGatewayRouteTableId:
+        Ref: rTransitGatewayRouteTable
+  rEgressTransitGatewayRoute1:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      TransitGatewayAttachmentId:
+        Ref: rEgressTransitGatewayAttachment
+      TransitGatewayRouteTableId:
+        Ref: rTransitGatewayRouteTable
+  rEgressTransitGatewayRoute2:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      DestinationCidrBlock:
+        Ref: pEgressVpcCidrBlock
+      TransitGatewayAttachmentId:
+        Ref: rEgressTransitGatewayAttachment
+      TransitGatewayRouteTableId:
+        Ref: rTransitGatewayRouteTable
+  rEgressTransitGatewayRoute3:
+    Type: AWS::EC2::TransitGatewayRoute
+    Properties:
+      DestinationCidrBlock:
+        Ref: pRosaVpcCidrBlock
+      TransitGatewayAttachmentId:
+        Ref: rRosaTransitGatewayAttachment
+      TransitGatewayRouteTableId:
+        Ref: rTransitGatewayRouteTable
+  rEgressPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: rosa-egress-private-rt
+      VpcId:
+        Ref: rEgressVpc
+  rEgressPrivateRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: rEgressVpcPrivateSubnet
+      RouteTableId:
+        Ref: rEgressPrivateRouteTable
+
+  # NAT gateway route
+  rEgressPrivateToNATRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: rEgressPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: rNATGateway
+  rEgressVpcPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: rEgressVpc
+      Tags:
+        - Key: Name
+          Value: rosa-egress-public-rt
+  rEgressPublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: rEgressVpcPublicSubnet
+      RouteTableId:
+        Ref: rEgressVpcPublicRouteTable
+  rEgressPrivateToIGWRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: rEgressVpcPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: rInternetGateway
+  rEgressPrivateToTGWRoute:
+    Type: AWS::EC2::Route
+    DependsOn: rEgressTransitGatewayAttachment
+    Properties:
+      RouteTableId:
+        Ref: rEgressVpcPublicRouteTable
+      DestinationCidrBlock:
+        Ref: pRosaVpcCidrBlock
+      TransitGatewayId:
+        Ref: rTransitGateway
+  rRosaVpcRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: rRosaVpc
+      Tags:
+        - Key: Name
+          Value: rosa-private-rt
+  rRosaVpcSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: rRosaVpcSubnetA
+      RouteTableId:
+        Ref: rRosaVpcRouteTable
+  rRosaVpcSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: cCreateSubnetB
+    Properties:
+      SubnetId:
+        Ref: rRosaVpcSubnetB
+      RouteTableId:
+        Ref: rRosaVpcRouteTable
+  rRosaVpcSubnetCRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: cCreateSubnetC
+    Properties:
+      SubnetId:
+        Ref: rRosaVpcSubnetB
+      RouteTableId:
+        Ref: rRosaVpcRouteTable
+
+  rRosaToTGWRoute:
+    Type: AWS::EC2::Route
+    DependsOn: rRosaTransitGatewayAttachment
+    Properties:
+      RouteTableId:
+        Ref: rRosaVpcRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      TransitGatewayId:
+        Ref: rTransitGateway
+
+Outputs:
+  oStackName:
+    Value:
+      Ref: AWS::StackName
+  oRosaVpc:
+    Value:
+      Ref: rRosaVpc
+  oRosaVpcSubnetA:
+    Value:
+      Ref: rRosaVpcSubnetA
+  oRosaVpcSubnetB:
+    Condition: cCreateSubnetB
+    Value:
+      Ref: rRosaVpcSubnetB
+  oRosaVpcSubnetC:
+    Condition: cCreateSubnetC
+    Value:
+      Ref: rRosaVpcSubnetC
+  oEgressVpc:
+    Value:
+      Ref: rEgressVpc
+  oTransitGatewayId:
+    Value:
+      Ref: rTransitGateway
+  oELBServiceLinkedRole:
+    Condition: cEnableELBServiceLinkedRole
+    Value:
+      Ref: rELBServiceLinkedRole
+  oEgressVpcPrivateSubnet:
+    Value:
+      Ref: rEgressVpcPrivateSubnet
+  oEgressVpcPublicSubnet:
+    Value:
+      Ref: rEgressVpcPublicSubnet
+  oInternetGateway:
+    Value:
+      Ref: rInternetGateway
+  oInternetGatewayEgressAttachment:
+    Value:
+      Ref: rInternetGatewayEgressAttachment
+  oEIP:
+    Value:
+      Ref: rElasticIP
+  oNAT:
+    Value:
+      Ref: rNATGateway
+  oTransitGateway:
+    Value:
+      Ref: rTransitGateway
+  oPrivateTransitGatewayAttachment:
+    Value:
+      Ref: rRosaTransitGatewayAttachment
+  oEgressTransitGatewayAttachment:
+    Value:
+      Ref: rEgressTransitGatewayAttachment
+  oTransitGatewayRouteTable:
+    Value:
+      Ref: rTransitGatewayRouteTable
+  oEgressTransitGatewayRoute1:
+    Value:
+      Ref: rEgressTransitGatewayRoute1
+  oEgressTransitGatewayRoute2:
+    Value:
+      Ref: rEgressTransitGatewayRoute2
+  oEgressTransitGatewayRoute3:
+    Value:
+      Ref: rEgressTransitGatewayRoute3
+  oEgressPrivateRouteTable:
+    Value:
+      Ref: rEgressPrivateRouteTable
+  oEgressPrivateRouteTableAssociation:
+    Value:
+      Ref: rEgressPrivateRouteTableAssociation
+  oEgressPrivateToNATRoute:
+    Value:
+      Ref: rEgressPrivateToNATRoute
+  oEgressVpcPublicRouteTable:
+    Value:
+      Ref: rEgressVpcPublicRouteTable
+  oPublicSubnetARouteTableAssociation:
+    Value:
+      Ref: rEgressPublicSubnetARouteTableAssociation
+  oEgressPrivateToIGWRoute:
+    Value:
+      Ref: rEgressPrivateToIGWRoute
+  oEgressPrivateToTGWRoute:
+    Value:
+      Ref: rEgressPrivateToTGWRoute
+  oRosaVpcCIDR:
+    Value: !GetAtt rRosaVpc.CidrBlock
+  oRosaVpcRouteTable:
+    Value:
+      Ref: rRosaVpcRouteTable
+  oRosaVpcSubnetARouteTableAssociation:
+    Value:
+      Ref: rRosaVpcSubnetARouteTableAssociation
+  oRosaVpcSubnetBRouteTableAssociation:
+    Condition: cCreateSubnetB
+    Value:
+      Ref: rRosaVpcSubnetBRouteTableAssociation
+  oRosaVpcSubnetCRouteTableAssociation:
+    Condition: cCreateSubnetC
+    Value:
+      Ref: rRosaVpcSubnetCRouteTableAssociation
+  oPrivateToTGWRoute:
+    Value:
+      Ref: rRosaToTGWRoute
+  oEgressVpcFlowLogCloudWatch:
+    Condition: cEnableVpcFlowLogs
+    Value:
+      Ref: rEgressVpcFlowLogCloudWatch
+  oRosaVpcFlowLogGroup:
+    Condition: cEnableVpcFlowLogs
+    Value:
+      Ref: rRosaVpcFlowLogGroup
+  oVpcsLogGroupKey:
+    Condition: cEnableVpcFlowLogs
+    Value:
+      Ref: rVpcsLogGroupKey
