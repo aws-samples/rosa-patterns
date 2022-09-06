@@ -504,7 +504,7 @@ Resources:
     Condition: cCreateSubnetC
     Properties:
       SubnetId:
-        Ref: rRosaVpcSubnetB
+        Ref: rRosaVpcSubnetC
       RouteTableId:
         Ref: rRosaVpcRouteTable
 
