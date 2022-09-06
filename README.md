@@ -22,7 +22,7 @@ Update the following command to launch one of the CloudFormation template above,
 
 ```bash
 # AWS region to install OpenShift
-export AWS_DEFAULT_REGION=ap-southeast-2
+export AWS_DEFAULT_REGION=us-west-2
 # AWS CloudFormation Stack name
 export AWS_STACK_NAME=rosa-networking
 
