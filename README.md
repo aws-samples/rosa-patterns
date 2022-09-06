@@ -22,13 +22,9 @@ Update the following command to launch one of the CloudFormation template above,
 
 ```bash
 # AWS region to install OpenShift
-export AWS_DEFAULT_REGION=us-west-2 
+export AWS_DEFAULT_REGION=us-west-2
 # AWS CloudFormation Stack name
 export AWS_STACK_NAME=rosa-networking
-# AWS profile
-export AWS_PROFILE=default
-# AWS account ID
-export AWS_ACCOUNT_ID=`aws sts get-caller-identity --query "Account" --output text`
 
 aws cloudformation create-stack --stack-name $AWS_STACK_NAME --template-body file://rosa-privatelink-egress-vpc.yml
 ```
@@ -42,38 +38,29 @@ Once step 1 is completed, the ROSA configuration and account roles can be create
 ```bash
 # An existing VPC CIDR that OpenShift will be using
 export ROSA_VPC_CIDR=`aws cloudformation describe-stacks --stack-name $AWS_STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='oRosaVpcCIDR'].OutputValue" --output text`
+echo $ROSA_VPC_CIDR 
 
 # The subnets for OpenShift
 # /!\ Depending on how many Availibility Zones the CloudFormation stack uses, run all or some of the following commands to retrieve the subnets in each Availibility Zone
 export ROSA_VPC_PRIVATE_SUBNET_A=`aws cloudformation describe-stacks --stack-name $AWS_STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='oRosaVpcSubnetA'].OutputValue" --output text`
-# Optional if single AZ cluster
+echo $ROSA_VPC_PRIVATE_SUBNET_A
+
+# Optional steps if single AZ cluster
 export ROSA_VPC_PRIVATE_SUBNET_B=`aws cloudformation describe-stacks --stack-name $AWS_STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='oRosaVpcSubnetB'].OutputValue" --output text`
-# Optional if two AZ cluster
+echo $ROSA_VPC_PRIVATE_SUBNET_B
+
 export ROSA_VPC_PRIVATE_SUBNET_C=`aws cloudformation describe-stacks --stack-name $AWS_STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='oRosaVpcSubnetC'].OutputValue" --output text`
+echo $ROSA_VPC_PRIVATE_SUBNET_C
 ```
 
 2. Configure the remaining ROSA cluster options and create the ROSA account roles:
 
 ```bash
-# OpenShift version to install
-export OPENSHIFT_VERSION=4.9.15
 # Name of the cluster
 export ROSA_CLUSTER_NAME=rosa-cluster
-# Prefix assigned to the role names. Use a unique name per cluster
-export ROLE_PREFIX=ManagedOpenShift-${ROSA_CLUSTER_NAME}
-# Number of compute nodes
-export ROSA_NUM_COMPUTE_NODES=3
-# Instance type of the computer nodes
-export ROSA_COMPUTE_TYPE=m5.xlarge
-export ROSA_HOST_PREFIX=23
 
 # Create account roles
-rosa create account-roles \
-    --mode auto \
-    --prefix ${ROLE_PREFIX} \
-    --profile ${AWS_PROFILE} \
-    --region ${AWS_DEFAULT_REGION} \
-    --yes
+rosa create account-roles --mode auto --yes
 ```
 
 ### Step 3: ROSA - cluster installation
@@ -83,33 +70,13 @@ Create the ROSA private cluster using the following commands:
 ```bash
 # Create ROSA cluster
 rosa create cluster \
+    --cluster-name $ROSA_CLUSTER_NAME \
+    --region $AWS_DEFAULT_REGION \
     --private-link \
     --sts \
-    --cluster-name ${ROSA_CLUSTER_NAME} \
-    --compute-nodes ${ROSA_NUM_COMPUTE_NODES} \
-    --compute-machine-type ${ROSA_COMPUTE_TYPE} \
-    --version ${OPENSHIFT_VERSION} \
     --machine-cidr ${ROSA_VPC_CIDR} \
-    --subnet-ids "${ROSA_VPC_PRIVATE_SUBNET_A},${ROSA_VPC_PRIVATE_SUBNET_B},${ROSA_VPC_PRIVATE_SUBNET_C}" \ # Adjust subnets depending on the number of Availability Zones available in the ROSA VPC 
-    --host-prefix ${ROSA_HOST_PREFIX} \
-    --multi-az \ # optional
-    --additional-trust-bundle-file RootCA.pem \ # optional
-    --http-proxy http://proxy.xxxxxx:3128  \    # optional
-    --https-proxy http://proxy.xxxxx:3128       # optional
-
-# Create OpenShift operators roles
-rosa create operator-roles \
-    --cluster ${ROSA_CLUSTER_NAME} \
-    --profile ${AWS_PROFILE} \
-    --region ${AWS_DEFAULT_REGION} \
-    --mode auto \
-    --yes
-
-# Create OpenID Connect (OIDC) provider for OpenShift
-rosa create oidc-provider \
-    --cluster ${ROSA_CLUSTER_NAME} \
-    --profile ${AWS_PROFILE} \
-    --region ${AWS_DEFAULT_REGION} \
+    --multi-az \
+    --subnet-ids "${ROSA_VPC_PRIVATE_SUBNET_A},${ROSA_VPC_PRIVATE_SUBNET_B},${ROSA_VPC_PRIVATE_SUBNET_C}" \
     --mode auto \
     --yes
 ```
@@ -122,7 +89,8 @@ IMPORTANT: If DNS resolution is not configured as per the following steps, the R
 
 ---
 
-1. Find the current status of the cluster with the `rosa list cluser` command.
+1. Find the current status of the cluster with the `rosa list cluster` or `watch "rosa list cluster"` commands. At creation time, the cluster status will be `pending`. After 1 to 5m, the installation will start automatically.
+
 2. When the cluster status is *installing*, run the following commands:
 
 ```bash
@@ -135,10 +103,10 @@ echo "ROSA Cluster Domain Name: $DNS_DOMAIN"
 # Please repeat the command until the Route 53 Hosted Zone is found
 R53HZ_ID=$(aws route53 list-hosted-zones-by-name | jq --arg name "$ROSA_CLUSTER_NAME.$DNS_DOMAIN." -r '.HostedZones | .[] | select(.Name=="\($name)") | .Id')
 echo "ROSA Cluster Route 53 Hosted Zone Id: $R53HZ_ID"
-aws route53 associate-vpc-with-hosted-zone --hosted-zone-id $R53HZ_ID --vpc VPCRegion=$AWS_REGION,VPCId=$VPC_EGRESS
+aws route53 associate-vpc-with-hosted-zone --hosted-zone-id $R53HZ_ID --vpc VPCRegion=$AWS_DEFAULT_REGION,VPCId=$VPC_EGRESS
 ```
 
-You can see the cluster installation logs during the process by running: `rosa logs install -c rosa-cluster --watch`.
+You can see the cluster installation logs during the process by running: `rosa logs install -c $ROSA_CLUSTER_NAME --watch`.
 
 ### Decommissioning
 
@@ -162,4 +130,3 @@ See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more inform
 ## License
 
 This library is licensed under the MIT-0 License. See the LICENSE file.
-
