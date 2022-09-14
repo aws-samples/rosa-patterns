@@ -108,6 +108,35 @@ aws route53 associate-vpc-with-hosted-zone --hosted-zone-id $R53HZ_ID --vpc VPCR
 
 You can see the cluster installation logs during the process by running: `rosa logs install -c $ROSA_CLUSTER_NAME --watch`.
 
+### Step 4 - Cluster access
+
+You can access the PrivateLink cluster from a local machine (via an EC2 instance) using the following commands:
+
+```bash
+# Create EC2 key pair for SSH access
+aws ec2 create-key-pair --key-name $ROSA_CLUSTER_NAME --key-type rsa --key-format pem --query "KeyMaterial" --output text > $ROSA_CLUSTER_NAME.pem
+chmod 400 $ROSA_CLUSTER_NAME.pem
+
+# Create EC2 instance in EGRESS_PUBLIC_SUBNET with inbound SSH traffic
+VPC_EGRESS_PUBLIC_SUBNET=`aws cloudformation describe-stacks --stack-name $AWS_STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='oEgressVpcPublicSubnet'].OutputValue" --output text`
+echo "Egress Public Subnet: $VPC_EGRESS_PUBLIC_SUBNET"
+aws ec2 run-instances --image-id <ami-id> --count 1 --instance-type t2.micro --key-name $ROSA_CLUSTER_NAME --subnet-id $VPC_EGRESS_PUBLIC_SUBNET --associate-public-ip-address
+
+# Run the following command and add the output to your /etc/hosts
+echo 127.0.0.1 api.$ROSA_CLUSTER_NAME.$DNS_DOMAIN
+echo 127.0.0.1 console-openshift-console.apps.$ROSA_CLUSTER_NAME.$DNS_DOMAIN
+echo 127.0.0.1 oauth-openshift.apps.$ROSA_CLUSTER_NAME.$DNS_DOMAIN
+
+# ssh to the instance, tunnelling the traffic for your browser
+export EC2_PUBLIC_IP=`aws ec2 describe-addresses | jq -r '.Addresses[0].PublicIp'`
+echo $EC2_PUBLIC_IP
+ssh -i $ROSA_CLUSTER_NAME.pem \
+   -L 6443:api.$ROSA_CLUSTER_NAME.$DNS_DOMAIN:6443 \
+   -L 443:console-openshift-console.apps.$ROSA_CLUSTER_NAME.$DNS_DOMAIN:443 \
+   -L 80:console-openshift-console.apps.$ROSA_CLUSTER_NAME.$DNS_DOMAIN:80 \
+    ec2-user@$EC2_PUBLIC_IP
+```
+
 ### Decommissioning
 
 Delete the ROSA cluster and CloudFormation stack by running the following commands:
