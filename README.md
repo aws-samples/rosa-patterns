@@ -10,14 +10,14 @@ This repository provides [AWS CloudFormation](https://aws.amazon.com/cloudformat
 
 ## AWS CloudFormation and AWS CDK templates
 
-| #   | Setup                                               | Description                                                                                                                                         | Instructions template             | When to run?                                            |
-| --- | --------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------ |
-| 1   | PrivateLink cluster for Centralized Internet Egress | Uses a TransitGateay attached to a ROSA Private VPC and an Egress VPC, single NAT Gateway. Supports Single AZ and Multi AZ | [rosa-privatelink-egress-vpc.yml](templates/privatelink/README.md) |Before provisioning a ROSA cluster |
-| 2   | Setting up ROSA to use Amazon Managed Service for Prometheus and Amazon Managed Service for Grafana  | Uses AWS CDK to provision the required IAM roles and Prometheus + Grafana workspaces | [rosa-amg-amp-cdk](templates/rosa-amg-amp/README.md) | [After provisioning a ROSA cluster](docs/ROSA.md) |
+| #   | Setup                                               | Description                                                                               | Instructions              | When to run? |
+| --- | --------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------- | ------------ |
+| 1   | PrivateLink cluster for Centralized Internet Egress | Uses a TransitGateay attached to a ROSA Private VPC and an Egress VPC, single NAT Gateway. Supports Single AZ and Multi AZ | [rosa-privatelink-egress-vpc](templates/cloudformation/privatelink/README.md) |Before provisioning a ROSA cluster |
+| 2   | Setting up ROSA to use Amazon Managed Service for Prometheus and Amazon Managed Service for Grafana  | Uses AWS CDK to provision the required IAM roles and Prometheus + Grafana workspaces | [rosa-amg-amp-cdk](templates/cdk/amg-amp/README.md) | [After provisioning a ROSA cluster](docs/ROSA.md) |
 
 ## Tests
 
-To run the tests, you will need to install [Docker](https://docs.docker.com/get-docker/) and [cfn-lint](https://github.com/aws-cloudformation/cfn-lint) and verify that the linting and security scanning tests are successful by using the following command: `bash test/run.sh`.
+To run the repository tests, you will need to install [Docker](https://docs.docker.com/get-docker/) and [cfn-lint](https://github.com/aws-cloudformation/cfn-lint) and verify that the linting and security scanning tests are successful by using the following command: `bash test/run.sh`.
 
 ---
 
