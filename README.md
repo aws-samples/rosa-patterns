@@ -10,15 +10,10 @@ This repository provides [AWS CloudFormation](https://aws.amazon.com/cloudformat
 
 ## AWS CloudFormation and AWS CDK templates
 
-| #   | Setup                                               | Description                                                                               | Architecture                                                          | CloudFormation template             | When to run?                                            |
+| #   | Setup                                               | Description                                                                                                                                         | Instructions template             | When to run?                                            |
 | --- | --------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------ |
-| 1   | PrivateLink cluster for Centralized Internet Egress | Uses a TransitGateay attached to a ROSA Private VPC and an Egress VPC, single NAT Gateway | [rosa-privatelink-egress-vpc](assets/rosa-privatelink-egress-vpc.png). Support Single AZ and Multi AZ  | [rosa-privatelink-egress-vpc.yml](templates/privatelink/rosa-privatelink-egress-vpc.yml) |Before provisioning a ROSA cluster |
-| 2   | Setting up ROSA to use Amazon Managed Service for Prometheus and Amazon Managed Service for Grafana  | Uses AWS CDK to provision the required IAM roles and Prometheus + Grafana workspaces | [rosa-amg-amp](assets/rosa-amg-amp.png)  | [rosa-amg-amp-cdk](templates/rosa-amg-amp/) | [After provisioning a ROSA cluster](docs/ROSA.md) |
-
-Visit the following AWS documentations to run these templates:
-
-- Creating a [CloudFormation stack](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-cli-creating-stack.html)
-- Deploy a [CDK stack](https://docs.aws.amazon.com/cdk/v2/guide/cli.html#cli-deploy)
+| 1   | PrivateLink cluster for Centralized Internet Egress | Uses a TransitGateay attached to a ROSA Private VPC and an Egress VPC, single NAT Gateway. Supports Single AZ and Multi AZ | [rosa-privatelink-egress-vpc.yml](templates/privatelink/README.md) |Before provisioning a ROSA cluster |
+| 2   | Setting up ROSA to use Amazon Managed Service for Prometheus and Amazon Managed Service for Grafana  | Uses AWS CDK to provision the required IAM roles and Prometheus + Grafana workspaces | [rosa-amg-amp-cdk](templates/rosa-amg-amp/README.md) | [After provisioning a ROSA cluster](docs/ROSA.md) |
 
 ## Tests
 
