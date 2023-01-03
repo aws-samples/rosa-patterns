@@ -1,0 +1,18 @@
+serviceAccounts:
+  server:
+    name: prometheus-aws
+    annotations:
+      eks.amazonaws.com/role-arn: ${AMP_ROLE_ARN}
+server:
+  remoteWrite:
+    - url: ${AMP_RW_URL}
+      sigv4:
+        region:${AMP_REGION}
+prometheus-pushgateway:
+  enabled: false
+prometheus-node-exporter:
+  enabled: false
+alertmanager:
+  enabled: false
+kube-state-metrics:
+  enabled: false
