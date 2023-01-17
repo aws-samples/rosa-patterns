@@ -1,4 +1,4 @@
-# ROSA CloudFormation
+# ROSA Patterns
 
 This repository provides [AWS CloudFormation](https://aws.amazon.com/cloudformation/) and AWS Cloud Development Kit ([AWS CDK](https://aws.amazon.com/cdk/)) templates that can be used to create example architectures applicable to Red Hat OpenShift Service on AWS (ROSA).
 
