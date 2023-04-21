@@ -13,6 +13,27 @@ The default installation will create a public ROSA cluster in a single availabil
 
 ### Cluster
 
+**Boostrap** - Create an S3 bucket and DynamoDB table to store the remote state
+
+```bash
+AWS_S3_BUCKET=<bucket-name>
+AWS_REGION=<region-code>
+
+aws s3api create-bucket 
+  --bucket "${AWS_S3_BUCKET}" \
+  --region <region> --create-bucket-configuration LocationConstraint=${AWS_S3_BUCKET}
+
+aws s3api put-bucket-encryption \
+  --bucket ${AWS_S3_BUCKET} \
+  --server-side-encryption-configuration "{\"Rules\": [{\"ApplyServerSideEncryptionByDefault\":{\"SSEAlgorithm\": \"AES256\"}}]}"
+
+aws dynamodb create-table \
+  --table-name terraform-backend \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+```
+
 **Step 1** - Install the required Terraform provider plugins
 
 ```bash
