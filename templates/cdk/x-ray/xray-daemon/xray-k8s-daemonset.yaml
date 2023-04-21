@@ -1,0 +1,144 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aws-xray
+  labels:
+    # pod-security.kubernetes.io/enforce-version: "v1.23"
+    # pod-security.kubernetes.io/audit-version: "v1.23"
+    # pod-security.kubernetes.io/warn-version: "v1.23"
+
+    pod-security.kubernetes.io/enforce: privileged
+    # pod-security.kubernetes.io/audit: privileged
+    # pod-security.kubernetes.io/warn: privileged
+
+    # pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+
+    # pod-security.kubernetes.io/enforce: restricted
+    # pod-security.kubernetes.io/audit: restricted
+    # pod-security.kubernetes.io/warn: restricted
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: xray-daemon
+  name: xray-daemon
+  namespace: aws-xray
+  annotations:
+    eks.amazonaws.com/role-arn: ${AWS_ROLE_ARN}
+    # arn:aws:iam::898058419606:role/willgrod2-rosa-xray-role
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: xray-daemon
+  namespace: aws-xray
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: xray-daemon
+  template:
+    metadata:
+      labels:
+        app: xray-daemon
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: xray-daemon
+      volumes:
+        - name: config-volume
+          configMap:
+            name: "xray-config"
+      containers:
+        - name: xray-daemon
+          image: amazon/aws-xray-daemon
+          command: ["/usr/bin/xray", "-c", "/aws/xray/config.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
+          resources:
+            requests:
+              cpu: 256m
+              memory: 32Mi
+            limits:
+              cpu: 512m
+              memory: 64Mi
+          ports:
+            - name: xray-ingest
+              containerPort: 2000
+              protocol: UDP
+            - name: xray-tcp
+              containerPort: 2000
+              protocol: TCP
+          volumeMounts:
+            - name: config-volume
+              mountPath: /aws/xray
+              readOnly: true
+---
+# Configuration for AWS X-Ray daemon
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xray-config
+  namespace: aws-xray
+data:
+  config.yaml: |-
+    # Maximum buffer size in MB (minimum 3). Choose 0 to use 1% of host memory.
+    TotalBufferSizeMB: 24
+    # Send segments to AWS X-Ray service in a specific region
+    Region: "${AWS_REGION}"
+    # Turn on local mode to skip EC2 instance metadata check.
+    LocalMode: true
+    Logging:
+      LogRotation: true
+      # Change the log level, from most verbose to least: dev, debug, info, warn, error, prod (default).
+      LogLevel: dev
+      # Output logs to the specified file path.
+      # LogPath: ""
+    Socket:
+      # Change the address and port on which the daemon listens for UDP packets containing segment documents.
+      # Make sure we listen on all IP's by default for the k8s setup
+      UDPAddress: "0.0.0.0:2000"
+      TCPAddress: "0.0.0.0:2000"
+    # Daemon configuration file format version.
+    Version: 2
+
+    # Maximum number of concurrent calls to AWS X-Ray to upload segment documents.
+    # Concurrency: 8
+    # Change the X-Ray service endpoint to which the daemon sends segment documents.
+    # Endpoint: ""
+    # Amazon Resource Name (ARN) of the AWS resource running the daemon.
+    # ResourceARN: ""
+    # Assume an IAM role to upload segments to a different account.
+    # RoleARN: ""
+    # Disable TLS certificate verification.
+    # NoVerifySSL: false
+    # Upload segments to AWS X-Ray through a proxy.
+    # ProxyAddress: ""
+---
+# k8s service definition for AWS X-Ray daemon headless service
+apiVersion: v1
+kind: Service
+metadata:
+  name: xray-service
+  namespace: aws-xray
+spec:
+  selector:
+    app: xray-daemon
+  clusterIP: None
+  ports:
+    - name: xray-ingest
+      port: 2000
+      protocol: UDP
+    - name: xray-tcp
+      port: 2000
+      protocol: TCP

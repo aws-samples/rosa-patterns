@@ -1,0 +1,118 @@
+---
+# Service A deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-a
+  namespace: aws-xray
+spec:
+  replicas: 2 # tells deployment to run 2 pods matching the template
+  selector:
+    matchLabels:
+      app: service-a
+  template: # create pods using pod definition in this template
+    metadata:
+      labels:
+        app: service-a
+    spec:
+      containers:
+        - name: service-a
+          image: ckassen/aws-xray-kubernetes-service-a:latest
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
+            runAsNonRoot: true
+            seccompProfile:
+              type: "RuntimeDefault"
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: API_CNAME
+              value: service-b.aws-xray
+            - name: AWS_XRAY_DAEMON_ADDRESS
+              value: xray-service.aws-xray:2000
+          resources:
+            requests:
+              cpu: 128m
+              memory: 128Mi
+            limits:
+              cpu: 1024m
+              memory: 128Mi
+
+---
+# Service A
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-a
+spec:
+  selector:
+    app: service-a
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+###
+---
+# Service B
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-b
+  namespace: aws-xray
+spec:
+  replicas: 2 # tells deployment to run 2 pods matching the template
+  selector:
+    matchLabels:
+      app: service-b
+  template: # create pods using pod definition in this template
+    metadata:
+      labels:
+        app: service-b
+    spec:
+      containers:
+        - name: service-b
+          image: ckassen/aws-xray-kubernetes-service-b:latest
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
+            runAsNonRoot: true
+            seccompProfile:
+              type: "RuntimeDefault"
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: AWS_XRAY_DAEMON_ADDRESS
+              value: xray-service.aws-xray:2000
+          resources:
+            requests:
+              cpu: 128m
+              memory: 128Mi
+            limits:
+              cpu: 1024m
+              memory: 128Mi
+
+---
+# Service B
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-b
+spec:
+  selector:
+    app: service-b
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
