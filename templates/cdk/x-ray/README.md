@@ -62,7 +62,7 @@ Once the load balancers are provisioned, you can send request to the services to
   - GET `curl http://<service-b-lb-dns-name>/health` which should returns a 200 if the service is running
   - POST `curl -X POST http://<service-b-lb-dns-name>/create` which randomly generates 403 and 200 HTTP code responses
 
-After sending requests to `servive-a`, you should ~ 50% of the request showing errors:
+After sending requests to `service-a`, you should expect to see ~ 50% of the request showing errors:
 
 ![Distributed Tracing System – AWS X-Ray](../../../assets//xray.png)
 
