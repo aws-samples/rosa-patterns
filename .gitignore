@@ -1,3 +1,4 @@
 # Terraform
 terraform.*
 .terraform*
+credentials

@@ -1,0 +1,148 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app: ldap
+  finalizers:
+  - kubernetes.io/pvc-protection
+  name: ldap
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5G
+  storageClassName: gp2
+  volumeMode: Filesystem
+status: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: ldap
+    app.kubernetes.io/component: ldap
+    app.kubernetes.io/instance: ldap
+  name: ldap
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      deployment: ldap
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        openshift.io/generated-by: OpenShiftNewApp
+      creationTimestamp: null
+      labels:
+        deployment: ldap
+    spec:
+      containers:
+      - env:
+        - name: LDAP_ROOT
+          valueFrom:
+            configMapKeyRef:
+              key: LDAP_ROOT
+              name: ldap
+        - name: LDAP_USERS
+          valueFrom:
+            configMapKeyRef:
+              key: LDAP_USERS
+              name: ldap
+        - name: LDAP_ADMIN_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              key: LDAP_ADMIN_PASSWORD
+              name: ldap
+        - name: LDAP_ADMIN_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              key: LDAP_ADMIN_USERNAME
+              name: ldap
+        - name: LDAP_PASSWORDS
+          valueFrom:
+            configMapKeyRef:
+              key: LDAP_PASSWORDS
+              name: ldap
+        image: bitnami/openldap:2.5
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: 1389
+          timeoutSeconds: 1
+        readinessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: 1389
+          timeoutSeconds: 1
+        name: ldap
+        ports:
+        - containerPort: 1389
+          protocol: TCP
+        - containerPort: 1636
+          protocol: TCP
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /bitnami/openldap
+          name: data
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: ldap
+status: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: ldap
+    app.kubernetes.io/component: ldap
+    app.kubernetes.io/instance: ldap
+  name: ldap
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: ldap
+    port: 1389
+    protocol: TCP
+    targetPort: 1389
+  - name: ldaps
+    port: 1636
+    protocol: TCP
+    targetPort: 1636
+  selector:
+    deployment: ldap
+  sessionAffinity: None
+  type: ClusterIP
+status: {}

@@ -1,0 +1,114 @@
+#!/bin/bash
+## Create 50 users in a ROSA cluster
+
+set -eu
+
+if [ $# -eq 0 ]
+  then
+    echo "No arguments supplied"
+fi
+
+PROJECT=infra
+NUM_USERS=50
+LDAP_ROOT=dc=redhat,dc=com
+LDAP_ADMIN_USERNAME=admin
+LDAP_ADMIN_PASSWORD=$1
+wait=60
+
+read -p "Cluster name [default: demo-cluster]: " rosaClusterName
+rosaClusterName=${rosaClusterName:-demo-cluster}
+
+IDP_NAME=${rosaClusterName}-ldap 2>/dev/null || true
+
+oc logout 2>/dev/null || true
+rosa delete admin -c ${rosaClusterName} 2>/dev/null || true
+
+# Create cluster-admin for first access
+rosa create admin -c ${rosaClusterName} -p ${LDAP_ADMIN_PASSWORD} | grep oc > ./credentials
+echo "Waiting for cluster-admin to be created (${wait}s)" 
+sleep ${wait}
+source ./credentials
+
+# Cleanup
+rosa delete idp ${IDP_NAME} --cluster=${rosaClusterName} 2>/dev/null || true
+oc delete all,cm,pvc -n $PROJECT -l app=ldap 2>/dev/null || true
+oc delete clusterrolebinding/cluster-monitoring-view 2>/dev/null || true
+
+# Create ldap admin and users
+rosa create idp --cluster=${rosaClusterName} --name ${IDP_NAME} --type ldap --id-attributes uid --insecure --url ldap://ldap.${PROJECT}.svc.cluster.local:1389/ou=users,${LDAP_ROOT}?cn
+
+echo "New users will be created. Please assign them default passwords."
+read -p "LDAP Users password [default: openshift]: " LDAP_USER_PASSWORD
+LDAP_USER_PASSWORD=${LDAP_USER_PASSWORD:-openshift}
+
+LDAP_USERS=""
+LDAP_PASSWORDS=""
+COUNT=1
+while [ $COUNT -le $NUM_USERS ]; do
+  if [ $COUNT -gt 1 ]; then
+    LDAP_USERS="$LDAP_USERS,"
+    LDAP_PASSWORDS="$LDAP_PASSWORDS,"
+  fi
+  LDAP_USERS="${LDAP_USERS}user${COUNT}"
+  LDAP_PASSWORDS="${LDAP_PASSWORDS}${LDAP_USER_PASSWORD}"
+  COUNT=$((COUNT + 1))
+done
+
+oc project $PROJECT || oc new-project $PROJECT
+
+oc create cm ldap \
+  -n $PROJECT \
+  --from-literal=LDAP_ROOT="$LDAP_ROOT" \
+  --from-literal=LDAP_ADMIN_USERNAME="$LDAP_ADMIN_USERNAME" \
+  --from-literal=LDAP_ADMIN_PASSWORD="$LDAP_ADMIN_PASSWORD" \
+  --from-literal=LDAP_USERS="$LDAP_USERS" \
+  --from-literal=LDAP_PASSWORDS="$LDAP_PASSWORDS"
+
+oc label cm/ldap -n $PROJECT app=ldap
+
+oc apply -n $PROJECT -f deploy-ldap.yml
+
+oc adm policy remove-cluster-role-from-group self-provisioner system:authenticated:oauth 2>/dev/null || true
+
+cat <<EOF > /tmp/cluster-monitoring-view.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-monitoring-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+EOF
+
+for (( i=1; i <= $NUM_USERS; i++ ))
+do
+        user="user"
+        user+=$i
+
+        oc delete project ${user} 2>/dev/null || true
+        oc new-project ${user}
+        oc adm policy add-role-to-user admin ${user} -n ${user}
+done
+
+oc apply -f /tmp/cluster-monitoring-view.yaml
+
+API_URL=$(rosa describe cluster -c ${rosaClusterName} -o json | jq -r .api.url)
+
+echo "Waiting for LDAP users to be created (${wait}s)" 
+sleep ${wait}
+for (( i=1; i <= $NUM_USERS; i++ ))
+do
+        user="user"
+        user+=$i
+
+        echo "Login in as ${user}"
+        oc login ${API_URL} --username ${user} --password ${LDAP_USER_PASSWORD}
+        oc project ${user}
+done
+
+oc logout 2>/dev/null || true
+source ./credentials
+rm -f ./credentials
+rosa delete admin -c ${rosaClusterName}
