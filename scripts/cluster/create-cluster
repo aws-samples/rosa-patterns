@@ -1,0 +1,49 @@
+#!/bin/bash
+## Create a ROSA cluster with users
+
+set -eu
+
+echo "Login into cloud.redhat.com and browse to https://cloud.redhat.com/openshift/token/rosa to get the rosa token."
+read -p "ROSA token:" rosaToken
+
+rosa login --token=${rosaToken}
+
+echo "Creating the IAM Account Roles for ROSA and validating AWS quotas"
+rosa create account-roles --mode auto --yes
+
+read -p "AWS region used to deploy the ROSA cluster [default: ap-southeast-2]:" awsRegion
+awsRegion=${awsRegion:-ap-southeast-2}
+
+read -p "Cluster name [default: demo-cluster]:" rosaClusterName
+rosaClusterName=${rosaClusterName:-demo-cluster}
+
+read -p "Worker node EC2 instance type [default: m5.2xlarge]:" instanceType
+instanceType=${instanceType:-m5.2xlarge}
+
+read -p "Multi-AZ enabled (y/n) [default: n]:" isMultiAz
+isMultiAz=${isMultiAz:-n}
+
+echo "Creating a public ROSA cluster with STS enabled (this may take up to 60m...)"
+
+if [ "$isMultiAz" == "n" ]; then
+        rosa create cluster \
+                --cluster-name ${rosaClusterName} \
+                --region ${awsRegion} \
+                --compute-machine-type ${instanceType} \
+                --sts \
+                --mode auto \
+                --yes
+else
+        rosa create cluster \
+                --cluster-name ${rosaClusterName} \
+                --region ${awsRegion} \
+                --compute-machine-type ${instanceType} \
+                --sts \
+                --mode auto \
+                --yes \
+                --multi-az
+fi
+
+
+rosa describe cluster --cluster=${rosaClusterName}
+
