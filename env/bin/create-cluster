@@ -32,6 +32,7 @@ if [ "$isMultiAz" == "n" ]; then
                 --compute-machine-type ${instanceType} \
                 --sts \
                 --mode auto \
+                --version 4.12.12 \
                 --yes
 else
         rosa create cluster \
@@ -40,8 +41,9 @@ else
                 --compute-machine-type ${instanceType} \
                 --sts \
                 --mode auto \
-                --yes \
-                --multi-az
+                --version 4.12.12 \
+                --multi-az \
+                --yes
 fi
 
 
