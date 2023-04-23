@@ -1,0 +1,92 @@
+#!/bin/bash
+## Forwards logs to Amazon CloudWatch
+
+set -eu
+
+# Environment
+
+export OIDC_ENDPOINT=$(oc get authentication.config.openshift.io cluster -o json | jq -r .spec.serviceAccountIssuer| sed -e "s/^https:\/\///")
+echo "OIDC endpoint: ${OIDC_ENDPOINT}"
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+echo "AWS Account ID: ${AWS_ACCOUNT_ID}"
+read -p "AWS region [default: ap-southeast-2]:" awsRegion
+awsRegion=${awsRegion:-ap-southeast-2}
+export AWS_REGION=${awsRegion}
+export POLICY_NAME=RosaCloudWatch
+export POLICY_ARN=arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+read -p "Cluster name [default: demo-cluster]: " rosaClusterName
+rosaClusterName=${rosaClusterName:-demo-cluster}
+ROLE_NAME=${rosaClusterName}-RosaCloudWatch
+
+# Clean up
+aws iam detach-role-policy \
+    --role-name ${ROLE_NAME} \
+    --policy-arn $POLICY_ARN 2>/dev/null || true
+
+aws iam delete-role \
+    --role-name ${ROLE_NAME} 2>/dev/null || true
+
+# Provisioning
+
+cat <<EOF > /tmp/trust-policy.json
+{
+   "Version": "2012-10-17",
+   "Statement": [{
+     "Effect": "Allow",
+     "Principal": {
+       "Federated": "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_ENDPOINT}"
+     },
+     "Action": "sts:AssumeRoleWithWebIdentity",
+     "Condition": {
+       "StringEquals": {
+         "${OIDC_ENDPOINT}:sub": "system:serviceaccount:openshift-logging:logcollector"
+       }
+     }
+   }]
+}
+EOF
+ROLE_ARN=$(aws iam create-role --role-name "${ROLE_NAME}" \
+   --assume-role-policy-document file:///tmp/trust-policy.json \
+   --query Role.Arn --output text)
+echo ${ROLE_ARN}
+
+aws iam attach-role-policy \
+ --role-name ${ROLE_NAME} \
+ --policy-arn ${POLICY_ARN}
+
+cat << EOF | oc apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudwatch-credentials
+  namespace: openshift-logging
+stringData:
+  role_arn: $ROLE_ARN
+EOF
+
+cat << EOF | oc apply -f -
+apiVersion: "logging.openshift.io/v1"
+kind: ClusterLogForwarder
+metadata:
+  name: instance
+  namespace: openshift-logging
+spec:
+  outputs:
+    - name: cw
+      type: cloudwatch
+      cloudwatch:
+        groupBy: namespaceName
+        groupPrefix: rosa-${rosaClusterName}
+        region: ${AWS_REGION}
+      secret:
+        name: cloudwatch-credentials
+  pipelines:
+     - name: to-cloudwatch
+       inputRefs:
+         - infrastructure
+         - audit
+         - application
+       outputRefs:
+         - cw
+EOF
