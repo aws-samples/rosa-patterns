@@ -29,7 +29,6 @@ metadata:
   namespace: aws-xray
   annotations:
     eks.amazonaws.com/role-arn: ${AWS_ROLE_ARN}
-    # arn:aws:iam::898058419606:role/willgrod2-rosa-xray-role
 ---
 apiVersion: apps/v1
 kind: DaemonSet

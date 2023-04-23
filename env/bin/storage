@@ -1,0 +1,75 @@
+#!/bin/bash
+## Create a s3 bucket and IRSA configures it in ROSA
+
+set -eu
+
+export AWS_REGION=ap-southeast-2
+echo "AWS_REGION: ${AWS_REGION}"
+
+export CLUSTER_NAME=$(oc get infrastructure cluster -o=jsonpath="{.status.infrastructureName}")
+echo ${CLUSTER_NAME}
+export S3_BUCKET_NAME=${CLUSTER_NAME}-iam-app
+
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+export OIDC_PROVIDER=$(oc get authentication.config.openshift.io cluster -ojson | jq -r .spec.serviceAccountIssuer | sed 's/https:\/\///')
+
+export SERVICE_ACCOUNT=iam-app-s3-sa
+
+# Start
+
+cat <<EOF > /tmp/trust.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${OIDC_PROVIDER}:sub": "system:serviceaccount:iam-app:${SERVICE_ACCOUNT}"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+cat <<EOF > /tmp/policy.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ListObjectsInBucket",
+            "Effect": "Allow",
+            "Action": ["s3:ListBucket"],
+            "Resource": ["arn:aws:s3:::${S3_BUCKET_NAME}"]
+        },
+        {
+            "Sid": "AllObjectActions",
+            "Effect": "Allow",
+            "Action": "s3:*Object",
+            "Resource": ["arn:aws:s3:::${S3_BUCKET_NAME}/*"]
+        }
+    ]
+}
+EOF
+
+oc create serviceaccount ${SERVICE_ACCOUNT} -n iam-app 2>/dev/null || true
+
+POLICY_ARN=$(aws iam create-policy --policy-name ${SERVICE_ACCOUNT} \
+  --policy-document file:///tmp/policy.json \
+  --query 'Policy.Arn' --output text)
+echo "POLICY_ARN: ${POLICY_ARN}"
+
+aws iam create-role --role-name "${CLUSTER_NAME}-iam-app-s3-role" --assume-role-policy-document file:///tmp/trust.json
+
+aws iam attach-role-policy --role-name "${CLUSTER_NAME}-iam-app-s3-role" --policy-arn "${POLICY_ARN}"
+
+export APP_IAM_ROLE_ARN=$(aws iam get-role --role-name=${CLUSTER_NAME}-iam-app-s3-role --query Role.Arn --output text)
+export IRSA_ROLE_ARN=eks.amazonaws.com/role-arn=${APP_IAM_ROLE_ARN}
+oc annotate --overwrite serviceaccount -n iam-app ${SERVICE_ACCOUNT} $IRSA_ROLE_ARN
+
+aws s3api create-bucket --bucket $S3_BUCKET_NAME --region $AWS_REGION --create-bucket-configuration LocationConstraint=$AWS_REGION > /dev/null
