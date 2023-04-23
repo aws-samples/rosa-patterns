@@ -82,6 +82,8 @@ roleRef:
 subjects:
 EOF
 
+oc new-project iam-app
+
 for (( i=1; i <= $NUM_USERS; i++ ))
 do
         user="user"
@@ -90,6 +92,8 @@ do
         oc delete project ${user} 2>/dev/null || true
         oc new-project ${user}
         oc adm policy add-role-to-user admin ${user} -n ${user}
+        oc adm policy add-role-to-user edit ${user} -n iam-app
+
 done
 
 oc apply -f /tmp/cluster-monitoring-view.yaml
