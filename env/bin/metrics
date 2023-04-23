@@ -1,0 +1,287 @@
+#!/bin/bash
+## Create prometheus server and configure Amazon Managed Service for Prometheus / Amazon Managed Service for Grafana
+## Resources:
+## - https://github.com/prometheus-community/helm-charts
+## - https://docs.aws.amazon.com/prometheus/latest/userguide/AMP-onboard-ingest-metrics-existing-Prometheus-fargate.html
+## - https://aws.amazon.com/blogs/mt/getting-started-amazon-managed-service-for-prometheus/
+## - https://dev.to/kaitoii11/deploy-prometheus-monitoring-stack-to-kubernetes-with-a-single-helm-chart-2fbd
+
+set -eu
+
+# Init
+export AWS_REGION=ap-southeast-2
+echo "AWS_REGION: ${AWS_REGION}"
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+echo "AWS_ACCOUNT_ID: ${AWS_ACCOUNT_ID}"
+
+export SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE=amp-iamproxy-ingest-role
+echo "SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE: ${SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE}"
+
+export SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY=AMPIngestPolicy
+echo "SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY: ${SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY}"
+
+export SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY_ARN=arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY}
+echo "SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY_ARN: ${SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY_ARN}"
+
+export PROM_NS=prometheus
+echo "PROM_NS: ${PROM_NS}"
+
+export AWS_GRAFANA_SERVICE_ROLE=aws-grafana-service-role
+echo "AWS_GRAFANA_SERVICE_ROLE: ${AWS_GRAFANA_SERVICE_ROLE}"
+
+export AWS_GRAFANA_POLICY=aws-grafana-prometheus-policy
+echo "AWS_GRAFANA_POLICY: ${AWS_GRAFANA_POLICY}"
+
+export AWS_GRAFANA_POLICY_ARN=arn:aws:iam::${AWS_ACCOUNT_ID}:policy/${AWS_GRAFANA_POLICY}
+echo "AWS_GRAFANA_POLICY_ARN: ${AWS_GRAFANA_POLICY_ARN}"
+
+# Cleanup
+aws iam detach-role-policy --role-name ${SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE} --policy-arn ${SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY_ARN} 2>/dev/null || true
+
+POLICY_VERSIONS=$(aws iam list-policy-versions --policy-arn ${SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY_ARN} | jq -r '.Versions[].VersionId')
+for POLICY_VERSION in $POLICY_VERSIONS
+do
+    aws iam delete-policy-version --policy-arn ${SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY_ARN} --version-id ${POLICY_VERSION} 2>/dev/null || true
+done
+aws iam delete-policy --policy-arn ${SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY_ARN} 2>/dev/null || true
+aws iam delete-role --role-name ${SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE} 2>/dev/null || true
+
+aws iam detach-role-policy --role-name ${AWS_GRAFANA_SERVICE_ROLE} --policy-arn ${AWS_GRAFANA_POLICY_ARN} 2>/dev/null || true
+POLICY_VERSIONS=$(aws iam list-policy-versions --policy-arn ${AWS_GRAFANA_POLICY_ARN} | jq -r '.Versions[].VersionId')
+for POLICY_VERSION in $POLICY_VERSIONS
+do
+    aws iam delete-policy-version --policy-arn ${AWS_GRAFANA_POLICY_ARN} --version-id ${POLICY_VERSION} 2>/dev/null || true
+done
+aws iam delete-policy --policy-arn ${AWS_GRAFANA_POLICY_ARN} 2>/dev/null || true
+aws iam delete-role --role-name ${AWS_GRAFANA_SERVICE_ROLE} 2>/dev/null || true
+
+helm uninstall prometheus-rosa -n $PROM_NS 2>/dev/null || true
+
+sleep 10
+
+oc delete project $PROM_NS 2>/dev/null || true
+
+WORKSPACES=$(aws amp list-workspaces | jq -c '.workspaces[] | select(.alias | contains("ROSA-Workspace"))' | jq -r .workspaceId)
+for WORKSPACE in $WORKSPACES
+do
+    aws amp delete-workspace --workspace-id $WORKSPACE
+done
+
+GRAFANAS=$(aws grafana list-workspaces | jq -c '.workspaces[] | select(.name | contains("ROSA-Workspace"))' | jq -r .id)
+for GRAFANA in $GRAFANAS
+do
+    aws grafana delete-workspace --workspace-id $GRAFANA
+done
+
+# Start
+
+export OIDC_PROVIDER=$(oc get authentication.config.openshift.io cluster -o json | jq -r .spec.serviceAccountIssuer| sed -e "s/^https:\/\///")
+echo "OIDC_PROVIDER: ${OIDC_PROVIDER}"
+
+export ROSA_AMP_WORKSPACE_ID=$(aws amp create-workspace --alias ROSA-Workspace --region $AWS_REGION --query "workspaceId" --output text)
+echo "ROSA_AMP_WORKSPACE_ID: ${ROSA_AMP_WORKSPACE_ID}"
+
+export SERVICE_ACCOUNT_AMP_INGEST_NAME=amp-iamproxy-ingest-service-account
+echo "SERVICE_ACCOUNT_AMP_INGEST_NAME: ${SERVICE_ACCOUNT_AMP_INGEST_NAME}"
+
+cat <<EOF > /tmp/grafana-trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${OIDC_PROVIDER}:sub": "system:serviceaccount:${PROM_NS}:${SERVICE_ACCOUNT_AMP_INGEST_NAME}"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+cat <<EOF > /tmp/grafana-permission-policy-ingest.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+         "aps:RemoteWrite",
+         "aps:GetSeries",
+         "aps:GetLabels",
+         "aps:GetMetricMetadata"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+EOF
+
+SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE_ARN=$(aws iam create-role \
+ --role-name $SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE \
+ --assume-role-policy-document file:///tmp/grafana-trust-policy.json \
+ --query "Role.Arn" --output text)
+echo "SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE_ARN: ${SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE_ARN}"
+
+SERVICE_ACCOUNT_IAM_AMP_INGEST_ARN=$(aws iam create-policy --policy-name $SERVICE_ACCOUNT_IAM_AMP_INGEST_POLICY \
+ --policy-document file:///tmp/grafana-permission-policy-ingest.json \
+ --query 'Policy.Arn' --output text)
+echo "SERVICE_ACCOUNT_IAM_AMP_INGEST_ARN: ${SERVICE_ACCOUNT_IAM_AMP_INGEST_ARN}"
+
+aws iam attach-role-policy \
+ --role-name $SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE \
+ --policy-arn $SERVICE_ACCOUNT_IAM_AMP_INGEST_ARN
+echo $SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE_ARN
+
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add kube-state-metrics https://kubernetes.github.io/kube-state-metrics
+helm repo update
+
+oc adm policy add-scc-to-user anyuid -z prometheus-rosa-kube-state-metrics 
+oc adm policy add-scc-to-user anyuid -z prometheus-rosa-prometheus-pushgateway
+oc adm policy add-scc-to-user anyuid -z prometheus-rosa-alertmanager
+
+cat <<EOF > /tmp/helm_prom.yaml
+## The following is a set of default values for prometheus server helm chart which enable remoteWrite to Amazon Managed Service for Prometheus
+## For the rest of prometheus helm chart values see: https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus/values.yaml
+##
+serviceAccounts:
+  server:
+    name: ${SERVICE_ACCOUNT_AMP_INGEST_NAME}
+    annotations:
+      eks.amazonaws.com/role-arn: ${SERVICE_ACCOUNT_IAM_AMP_INGEST_ROLE_ARN}
+server:
+  containerSecurityContext:
+    runAsNonRoot: false
+    capabilities:
+      drop:
+        - ALL
+  remoteWrite:
+    - url: https://aps-workspaces.$AWS_REGION.amazonaws.com/workspaces/$ROSA_AMP_WORKSPACE_ID/api/v1/remote_write
+      sigv4:
+        region: ${AWS_REGION}
+      queue_config:
+        max_samples_per_send: 1000
+        max_shards: 200
+        capacity: 2500
+pushgateway:
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: false
+    capabilities:
+      drop:
+        - ALL
+nodeExporter:
+  enabled: true
+  securityContext:
+    runAsNonRoot: false
+configmapReload:
+  prometheus:
+    containerSecurityContext:
+      runAsNonRoot: false
+      capabilities:
+        drop:
+          - ALL
+  alertmanager:
+    containerSecurityContext:
+      runAsNonRoot: false
+      capabilities:
+        drop:
+          - ALL
+kube-state-metrics:
+  containerSecurityContext:
+    runAsNonRoot: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+EOF
+
+
+
+oc new-project $PROM_NS
+helm install prometheus-rosa prometheus-community/prometheus -n $PROM_NS -f /tmp/helm_prom.yaml
+oc get pod -n $PROM_NS
+
+
+cat <<EOF > /tmp/grafana-trust-policy.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "grafana.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole",
+            "Condition": {
+                "StringEquals": {
+                    "aws:SourceAccount": "${AWS_ACCOUNT_ID}"
+                },
+                "StringLike": {
+                    "aws:SourceArn": "arn:aws:grafana:${AWS_REGION}:${AWS_ACCOUNT_ID}:/workspaces/*"
+                }
+            }
+        }
+    ]
+}
+EOF
+
+cat <<EOF > /tmp/grafana-prometheus-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+         "aps:ListWorkspaces",
+         "aps:DescribeWorkspace",
+         "aps:QueryMetrics",
+         "aps:GetSeries",
+         "aps:GetLabels",
+         "aps:GetMetricMetadata"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+EOF
+
+AWS_GRAFANA_SERVICE_ROLE_ARN=$(aws iam create-role \
+--role-name $AWS_GRAFANA_SERVICE_ROLE \
+--assume-role-policy-document file:///tmp/grafana-trust-policy.json \
+--query "Role.Arn" --output text)
+echo "AWS_GRAFANA_SERVICE_ROLE_ARN: ${AWS_GRAFANA_SERVICE_ROLE_ARN}"
+
+AWS_GRAFANA_POLICY_ARN=$(aws iam create-policy --policy-name $AWS_GRAFANA_POLICY \
+--policy-document file:///tmp/grafana-prometheus-policy.json \
+--query 'Policy.Arn' --output text)
+echo "AWS_GRAFANA_POLICY_ARN: ${AWS_GRAFANA_POLICY_ARN}"
+
+aws iam attach-role-policy \
+ --role-name $AWS_GRAFANA_SERVICE_ROLE \
+ --policy-arn $AWS_GRAFANA_POLICY_ARN
+
+WORKSPACE=$(aws grafana create-workspace --workspace-name ROSA-Workspace --account-access-type CURRENT_ACCOUNT --workspace-role-arn $AWS_GRAFANA_SERVICE_ROLE_ARN --authentication-providers AWS_SSO --permission-type SERVICE_MANAGED --workspace-data-sources PROMETHEUS)
+
+echo "Creating Grafana workspace (this may take a few minutes...) "
+sleep 120
+
+
+# awscurl --region ${AWS_REGION} --service aps "https://aps-workspaces.region_id.amazonaws.com/workspaces/workspace_id/api/v1/query?query=prometheus_api_remote_read_queries"
+# {"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"prometheus_api_remote_read_queries","instance":"localhost:9090","job":"prometheus"},"value":[1648461236.419,"0"]}]}}21
+      
+echo "Next steps:"
+
+echo "1. In the AWS Console (Amazon Grafana), assign users to the new Amazon Grafana instance"
+echo "2. In the AWS Console (Amazon Grafana), Make these users admins"
+echo "3. Login into Grafana with one of the users"
+echo "4. In Grafana, go to the Configuration > Datasources > Add data source > Prometheus"
+echo "5: In Grafana, use this URL for the Prometheus data source"
+
+echo $WORKSPACE
