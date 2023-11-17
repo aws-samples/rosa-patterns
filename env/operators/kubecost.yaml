@@ -1,7 +1,7 @@
 kind: Subscription
 apiVersion: operators.coreos.com/v1alpha1
 metadata:
-  name: subscriptions.operators.coreos.com
+  name: kubecost
   namespace: openshift-operators
 spec:
   channel: 1.97.0
@@ -9,4 +9,3 @@ spec:
   name: kubecost
   source: community-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: kubecost.v1.97.0
