@@ -24,6 +24,13 @@ RUN npm install
 # Bundle app source
 COPY . /usr/src/app
 
+# Ensure unprivileged user has full access to app code
+RUN chown -R node:node /usr/src/app
+
+# Run container with unprivileged user
+USER node
+
+#checkov:skip=CKV_DOCKER_2:Healthcheck will be handled by OpenShift
 EXPOSE 8080
 
 CMD [ "node", "server.js" ]
