@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -eu
+set -u
 
 SCRIPT_PATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 ROOT_PATH="$SCRIPT_PATH/.."
