@@ -23,6 +23,16 @@ metadata:
     app: ldap
     app.kubernetes.io/component: ldap
     app.kubernetes.io/instance: ldap
+  annotations:
+    checkov.io/skip1: CKV_K8S_43=Demo/Workshop environment, we don't need a fixed hash.
+    checkov.io/skip2: CKV_K8S_15=Demo/Workshop environment, we don't need to allways pull the image.
+    checkov.io/skip3: CKV_K8S_22=Demo/Workshop environment, not necessary to enforce read-only filesystem.
+    checkov.io/skip4: CKV_K8S_40=OpenShift will assign a random UUID for the User.
+    checkov.io/skip5: CKV_K8S_31=Demo/Workshop environment, not necessary to enforce a seccomp profile.
+    checkov.io/skip6: CKV_K8S_11=Demo/Workshop environment, CPU limits can be ignored.
+    checkov.io/skip7: CKV_K8S_13=Demo/Workshop environment, Memory limits can be ignored.
+    checkov.io/skip8: CKV_K8S_21=Demo/Workshop environment, Usage of default namespace is fine.
+    checkov.io/skip9: CKV2_K8S_6=Demo/Workshop environment, not necessary to drop capabilities.
   name: ldap
 spec:
   progressDeadlineSeconds: 600
@@ -44,6 +54,7 @@ spec:
       labels:
         deployment: ldap
     spec:
+      automountServiceAccountToken: false
       containers:
       - env:
         - name: LDAP_ROOT
@@ -126,6 +137,8 @@ metadata:
     app: ldap
     app.kubernetes.io/component: ldap
     app.kubernetes.io/instance: ldap
+  annotations:
+    checkov.io/skip8: CKV_K8S_21=Demo/Workshop environment, Usage of default namespace is fine.
   name: ldap
 spec:
   internalTrafficPolicy: Cluster
