@@ -10,6 +10,6 @@ pushd $ROOT_PATH
     cfn-lint --info $PWD/templates/cloudformation/**/*.yml
 
     echo -e "\n[SECURITY-SCAN]"
-    docker run --tty --volume $PWD:/code --workdir /code bridgecrew/checkov --directory /code --skip-check CKV_AWS_115,CKV_AWS_116,CKV_AWS_117
+    docker run --tty --volume $PWD:/code --workdir /code bridgecrew/checkov --directory /code --skip-check CKV_AWS_115,CKV_AWS_116,CKV_AWS_117  --download-external-modules true
 
 popd

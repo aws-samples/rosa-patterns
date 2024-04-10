@@ -2,3 +2,4 @@
 terraform.*
 .terraform*
 credentials
+.external_modules/
