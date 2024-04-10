@@ -168,6 +168,7 @@ spec:
       existingSecret: ''
     envFromSecret: ''
     affinity: {}
+    #checkov:skip=CKV_SECRET_6:Default/Initial password, to be changed during the Workshop, not an actual secret.
     adminPassword: strongpassword
     livenessProbe:
       failureThreshold: 10
