@@ -5,6 +5,17 @@ kind: Deployment
 metadata:
   name: service-a
   namespace: aws-xray
+  annotations:
+    checkov.io/skip1: CKV_K8S_9=Demo/Workshop environment, skip readiness probe.
+    checkov.io/skip2: CKV_K8S_31=Demo/Workshop environment, not necessary to enforce a seccomp profile.
+    checkov.io/skip3: CKV_K8S_14=Application container only available with latest tag.
+    checkov.io/skip4: CKV_K8S_22=Demo/Workshop environment, not necessary to enforce read-only filesystem.
+    checkov.io/skip5: CKV_K8S_43=Demo/Workshop environment, we don't need a fixed hash.
+    checkov.io/skip6: CKV_K8S_8=Demo/Workshop environment, skip liveness probe.
+    checkov.io/skip7: CKV_K8S_40=OpenShift will assign a random UUID for the User.
+    checkov.io/skip8: CKV_K8S_29=False positive, security context defined.
+    checkov.io/skip9: CKV_K8S_21=Demo/Workshop environment, Usage of default namespace is fine.
+    checkov.io/skip10: CKV2_K8S_6=Demo/Workshop environment, not necessary to drop capabilities.
 spec:
   replicas: 2 # tells deployment to run 2 pods matching the template
   selector:
@@ -15,6 +26,7 @@ spec:
       labels:
         app: service-a
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: service-a
           image: ckassen/aws-xray-kubernetes-service-a:latest
@@ -49,6 +61,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: service-a
+  annotations:
+    checkov.io/skip9: CKV_K8S_21=Demo/Workshop environment, Usage of default namespace is fine.
 spec:
   selector:
     app: service-a
@@ -66,6 +80,17 @@ kind: Deployment
 metadata:
   name: service-b
   namespace: aws-xray
+  annotations:
+    checkov.io/skip1: CKV_K8S_9=Demo/Workshop environment, skip readiness probe.
+    checkov.io/skip2: CKV_K8S_31=Demo/Workshop environment, not necessary to enforce a seccomp profile.
+    checkov.io/skip3: CKV_K8S_14=Application container only available with latest tag.
+    checkov.io/skip4: CKV_K8S_22=Demo/Workshop environment, not necessary to enforce read-only filesystem.
+    checkov.io/skip5: CKV_K8S_43=Demo/Workshop environment, we don't need a fixed hash.
+    checkov.io/skip6: CKV_K8S_8=Demo/Workshop environment, skip liveness probe.
+    checkov.io/skip7: CKV_K8S_40=OpenShift will assign a random UUID for the User.
+    checkov.io/skip8: CKV_K8S_29=False positive, security context defined.
+    checkov.io/skip9: CKV_K8S_21=Demo/Workshop environment, Usage of default namespace is fine.
+    checkov.io/skip10: CKV2_K8S_6=Demo/Workshop environment, not necessary to drop capabilities.
 spec:
   replicas: 2 # tells deployment to run 2 pods matching the template
   selector:
@@ -76,6 +101,7 @@ spec:
       labels:
         app: service-b
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: service-b
           image: ckassen/aws-xray-kubernetes-service-b:latest
@@ -108,6 +134,8 @@ apiVersion: v1
 kind: Service
 metadata:
   name: service-b
+  annotations:
+    checkov.io/skip9: CKV_K8S_21=Demo/Workshop environment, Usage of default namespace is fine.
 spec:
   selector:
     app: service-b

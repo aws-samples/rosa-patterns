@@ -38,6 +38,14 @@ apiVersion: policy/v1beta1
 kind: PodSecurityPolicy
 metadata:
   name: ssm-agent-installer
+  annotations:
+    checkov.io/skip1: CKV_K8S_5=allowPrivilegeEscalation required for SSM Agent Installer.
+    checkov.io/skip2: CKV_K8S_7=NET_RAW capability required for SSM Agent Installer.
+    checkov.io/skip3: CKV_K8S_36=Capabilities required for SSM Agent Installer.
+    checkov.io/skip4: CKV_K8S_2=Privileged container required for SSM Agent Installer.
+    checkov.io/skip5: CKV_K8S_6=Root container required for SSM Agent Installer.
+    checkov.io/skip6: CKV_K8S_32=Demo/Workshop environment, not necessary to enforce a seccomp profile.
+    checkov.io/skip7: CKV_K8S_1=HostPID required for SSM Agent Installer.
 spec:
   privileged: true
   hostPID: true 
@@ -70,6 +78,25 @@ kind: DaemonSet
 metadata:
   name: ssm-agent-installer
   namespace: ssm-agent
+  annotations:
+    checkov.io/skip1: CKV_K8S_20=allowPrivilegeEscalation required by SSM Agent Installer.
+    checkov.io/skip2: CKV_K8S_11=Demo/Workshop environment, CPU limits can be ignored.
+    checkov.io/skip3: CKV_K8S_10=Demo/Workshop environment, CPU requests can be ignored.
+    checkov.io/skip4: CKV_K8S_28=NET_RAW capability required by SSM Agent Installer.
+    checkov.io/skip5: CKV_K8S_43=Demo/Workshop environment, we don't need a fixed hash
+    checkov.io/skip6: CKV_K8S_15=Demo/Workshop environment, we don't need to allways pull the image.
+    checkov.io/skip7: CKV_K8S_13=Demo/Workshop environment, Memory limits can be ignored.
+    checkov.io/skip8: CKV_K8S_12=Demo/Workshop environment, Memory requests can be ignored.
+    checkov.io/skip9: CKV_K8S_22=Demo/Workshop environment, not necessary to enforce read-only filesystem.
+    checkov.io/skip10: CKV_K8S_40=OpenShift will assign a random UUID for the User.
+    checkov.io/skip11: CKV_K8S_31=Demo/Workshop environment, not necessary to enforce a seccomp profile.
+    checkov.io/skip12: CKV_K8S_17=HostPID required for SSM Agent Installer.
+    checkov.io/skip13: CKV_K8S_16=Privileged permissions required by SSM Agent Installer.
+    checkov.io/skip14: CKV_K8S_37=Capabilities required by SSM Agent Installer.
+    checkov.io/skip15: CKV_K8S_29=Privileged permissions required by SSM Agent Installer.
+    checkov.io/skip16: CKV2_K8S_6=Demo/Workshop environment, not necessary to drop capabilities.
+    checkov.io/skip17: CKV_K8S_9=Readiness Probe not available for ssm agent installer deployments.
+    checkov.io/skip18: CKV_K8S_8=LivenessProbe not available for ssm agent installer deployments.
 spec:
   selector:
     matchLabels:
@@ -79,6 +106,7 @@ spec:
       labels:
         job: ssm-agent-installer
     spec:
+      automountServiceAccountToken: false
       hostPID: true
       restartPolicy: Always
       initContainers:
