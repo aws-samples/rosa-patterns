@@ -10,6 +10,6 @@
   "dependencies": {
     "aws-sdk": "^2.1362.0",
     "aws-xray-sdk": "^3.5.0",
-    "express": "^4.19.2"
+    "express": "^4.21.0"
   }
 }
