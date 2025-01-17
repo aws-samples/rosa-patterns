@@ -1,9 +1,9 @@
-name: Gitea Actions Demo
-run-name: ${{ gitea.actor }} is testing out Gitea Actions 🚀
+name: Terraform Deployment
+run-name: ${{ gitea.actor }} is deploying 🚀
 on: [push]
 
 jobs:
-  Explore-Gitea-Actions:
+  Terraform-Deploy-Actions:
     env:
       AWS_REGION: us-west-2
       SECRET_NAME: /team/rosa_metadata
