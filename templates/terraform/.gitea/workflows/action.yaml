@@ -4,6 +4,7 @@ on: [push]
 
 jobs:
   Terraform-Deploy-Actions:
+    runs-on: host
     env:
       AWS_REGION: us-west-2
       SECRET_NAME: /team/rosa_metadata
@@ -12,11 +13,6 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v1
         with:
           aws-region: ${{ env.AWS_REGION }}
-      - name: Install AWS CLI
-        run: |
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          sudo ./aws/install
 
       - name: Get Terraform Secret Input Values
         run: |
@@ -29,13 +25,12 @@ jobs:
           echo "RHCS_TOKEN=$(echo $SECRET_JSON | jq -r '.rosa_token')" >> $GITHUB_ENV
           echo "CLUSTER_NAME=$(echo $SECRET_JSON | jq -r '.cluster_name')" >> $GITHUB_ENV
 
-      - name: Echo Terraform Secret Input Values
+      - name: Show Terraform Secret Input Values
         run: |
           # Print values (except sensitive ones) for debugging
           echo "OpenShift Version: $OPENSHIFT_VERSION"
           echo "AWS Billing Account: $AWS_BILLING_ACCOUNT_ID"
           echo "ROSA Cluster Name: $CLUSTER_NAME"
-          echo "ROSA Token: ***********"
 
       - name: Get tfstate bucket name
         run: |
@@ -44,19 +39,8 @@ jobs:
           echo "Found tfstate bucket: $TFSTATE_BUCKET_NAME"
 
       - name: Check out repository code
-        uses: actions/checkout@v4
-
-      - name: List files in the repository
-        run: |
-          ls ${{ gitea.workspace }}
+        uses: actions/checkout@v3
             
-      - name: Setup Terraform
-        run: |
-          wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt update && sudo apt install terraform
-          terraform version
-
       - name: Terraform Init
         working-directory: ./src/examples/rosa-hcp-public
         run: |
